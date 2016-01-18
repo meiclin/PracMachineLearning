@@ -1,0 +1,151 @@
+##Practical Machine Learning Course Project
+*by Mei Chiao Lin, 1/17/2016*
+
+###★Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: ```http://groupware.les.inf.puc-rio.br/har``` (see the section on the Weight Lifting Exercise Dataset).
+
+###★Synopsis
+
+This report will build a machine learning model from the sample data that is attempting to accurately predict the manner in which the exercise was performed.
+
+This project focuses on utilizing some sample data on the quality of certain exercises to predict the manner.
+
+The goal of your project is to predict the manner in which they did the exercise. 
+Furthermore, this report will describe:
+
+   + How I built the model
+   + How I used cross validation
+   + What I think the expected out of sample error is
+   + Why I made the choices I did
+
+And use my prediction model to predict 20 different test cases
+
+###★Get and clean data
+```{r, lib, echo=FALSE}
+library(caret)
+library(lattice)
+library(ggplot2)
+library(rpart)
+```
+**◎Two data sets will be downloading to local files.**
+**◎Transfer strings containing '#DIV/0!' and 'NA' into the data frame as NA fields.**
+```{r, getdata, echo=TRUE}
+url_train <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url_tset <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+train <- read.csv(file = 'pml-training.csv', na.strings = c('NA', '#DIV/0!', ''))
+test <- read.csv(file = 'pml-testing.csv', na.strings = c('NA', '#DIV/0!', ''))
+```
+
+**◎Split data into testing and cross-validation**
+To find an ptimal model with the best performance both in Accuracy and minimizing ```Out of Sample Error```, the full testing data is split randomly with 60% of the data into the training sample ```(data_train)``` and the other 40% used as ```cross-validation (data_xval)```.
+Only the variables are fed into the final model when the samples are created.
+
+```{r, split, echo=TRUE}
+set.seed(1000)
+index_train <- createDataPartition(y=train$classe, p = 0.60, list = FALSE)
+data_train <- train[index_train, ]
+data_xval <- train[-index_train, ]
+#dim(data_train); dim(data_xval)
+```
+
+**◎Remove nearzero variance variables and the first column of train data set**
+```{r, removena, echo=TRUE}
+nzv1 <- nearZeroVar(data_train, saveMetrics = TRUE)
+data_train <- data_train[ ,nzv1$nzv == FALSE]
+nzv2 <- nearZeroVar(data_xval, saveMetrics = TRUE)
+data_xval <- data_xval[ ,nzv2$nzv == FALSE]
+data_train <- data_train[c(-1)]
+```
+
+**◎Clean variables with more than 80% NA, and transform two data sets into the same type**
+```{r, cleanNA, echo=TRUE}
+naRemove <- data_train
+for (i in 1:length(data_train)) {
+        if (sum(is.na(data_train[, i]))/nrow(data_train) >= 0.8) {
+                for (j in 1:length(naRemove)){
+                        if (length(grep(names(data_train[i]), names(naRemove)[j])) == 1) {naRemove <- naRemove[, -j]}}}}
+data_train <- naRemove
+rm(naRemove)
+#dim(data_train); dim(data_xval)
+```
+
+**◎Transform two daa sets into the same type.**
+```{r, transform, echo=TRUE}
+c1 <- colnames(data_train)
+c2 <- colnames(data_train[, -58])
+data_xval <- data_xval[c1]
+test <- test[c2]
+dim(data_train); dim(data_xval)
+for(i in 1:length(test)){
+        for(j in 1:length(data_train)){
+                if(length(grep(names(data_train[i]), names(test)[j])) == 1){
+                        class(test[j]) <- class(data_train[i])}}}
+test <- rbind(data_train[2, -58], test)
+test <- test[-1, ]
+dim(test)
+```
+
+###★Model built with cross validation, and the out of sample error
+
+**◎Prediction with Rpart Model**
+```{r, rattlib, echo=FALSE}
+#library(rattle)
+```
+```{r, tree, echo=TRUE}
+set.seed(1000)
+mod_tree <- rpart(classe ~ ., data=data_train, method="class")
+#fancyRpartPlot(mod_tree)
+#print(mod_tree, digits = 3)
+```
+
+```{r, predicttree, echo=TRUE}
+predict1 <- predict(mod_tree, data_xval, type = 'class')
+confusionMatrix(predict1, data_xval$classe)
+```
+
+> In testing the ```rpart model``` on the testing cross validation data, the accuracy is **86.85%**. And the out-of sample error is 1-86.85% = 13.15%.
+  Furthermore, outcome D has less accuracy with this model. So, I try random forest model as the following.
+  
+**◎Prediction with Random Forest Model**
+Since the outcome variable of the rpart model appears to have more nuances in variable selection, a random forest model was tested to see if that method fit the data more approporiately.
+```{r, librf, echo=FALSE}
+library(randomForest)
+```
+```{r, RF, echo=TRUE}
+set.seed(1000)
+mod_rf <- randomForest(classe ~ ., data = data_train)
+predict2 <- predict(mod_rf, data_xval, type = 'class')
+confusionMatrix(predict2, data_xval$classe)
+```
+```{r, rfplot, echo=TRUE}
+plot(mod_rf)
+varImpPlot(mod_rf, cex=.5)
+```
+
+> The *random forest model* has **99.89%** accuracy, and it's better than the rpart model. 
+  The specificity and sensitivity are high, more than 0.999. 
+  Reprocessing was considered, but at the risk of overfitting the model was not tested due to the accuracy is over 99%.
+
+> The ```out of sample error``` is **0.11%**, which is calculated as `1 - accuracy` for predictions made against the cross-validation set.
+  Considering that the test set is a sample size of 20, an accuracy rate well above 99% is sufficient to expect that few or none of the test samples will be mis-classified.
+
+###★Predicting results on the test data
+With the more accurate model **random forest model**, the prediction results as the following:
+```{r, predicttest, echo=TRUE}
+predict3 <- predict(mod_rf, newdata = test)
+predict3
+```
+
+###★Conclusion
+
+* Random Forest has higher accuracy than rpart model, with 99.89% accuracy and fitted well to cross-validation subsamples of the data. 
+
+* The out-of-sample error of random Forest model is 0.11%, which is much lower than 13.15% of rpart model.
+
+* Base on above results, I chose random forest model to predict the test data. 
+
+* The predicting result base on forest model is: 
+  ```r predict3```
